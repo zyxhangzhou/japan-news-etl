@@ -1,0 +1,8 @@
+﻿feedparser
+openai
+psycopg2-binary
+redis
+apache-airflow==2.8.0
+python-dotenv
+requests
+beautifulsoup4
