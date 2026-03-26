@@ -1,10 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
 
 import psycopg2
-from psycopg2.extras import Json
 import redis
 
 
@@ -38,33 +37,40 @@ def load_news(**context):
                 cursor.execute(
                     """
                     INSERT INTO news_articles (
-                        article_id,
-                        source,
-                        category,
+                        id,
+                        url,
+                        url_hash,
                         title,
                         summary,
                         content,
-                        url,
+                        source,
+                        category,
+                        language,
                         published_at,
                         fetched_at,
-                        language,
-                        metadata
+                        llm_summary_ja,
+                        llm_summary_zh,
+                        embedding
                     )
                     VALUES (
-                        %(article_id)s,
-                        %(source)s,
-                        %(category)s,
+                        %(id)s,
+                        %(url)s,
+                        %(url_hash)s,
                         %(title)s,
                         %(summary)s,
                         %(content)s,
-                        %(url)s,
-                        NULLIF(%(published_at)s, ''),
-                        %(fetched_at)s,
+                        %(source)s,
+                        %(category)s,
                         %(language)s,
-                        %(metadata)s
+                        %(published_at)s,
+                        %(fetched_at)s,
+                        NULL,
+                        NULL,
+                        NULL
                     )
-                    ON CONFLICT (article_id) DO UPDATE
+                    ON CONFLICT (url) DO UPDATE
                     SET
+                        url_hash = EXCLUDED.url_hash,
                         source = EXCLUDED.source,
                         category = EXCLUDED.category,
                         title = EXCLUDED.title,
@@ -72,20 +78,32 @@ def load_news(**context):
                         content = EXCLUDED.content,
                         published_at = EXCLUDED.published_at,
                         fetched_at = EXCLUDED.fetched_at,
-                        language = EXCLUDED.language,
-                        metadata = EXCLUDED.metadata,
-                        updated_at = NOW()
+                        language = EXCLUDED.language
                     """,
-                    {
-                        **item,
-                        "metadata": Json(
-                            {
-                                "url": item.get("url"),
-                                "embedding_input": item.get("embedding_input"),
-                            }
-                        ),
-                    },
+                    item,
                 )
+
+            cursor.execute(
+                """
+                INSERT INTO etl_run_log (
+                    run_date,
+                    category,
+                    source,
+                    fetched_count,
+                    inserted_count,
+                    error_message
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    context["logical_date"].date(),
+                    "all",
+                    "rss",
+                    len(validated_news),
+                    len(validated_news),
+                    None,
+                ),
+            )
 
     redis_client.set(
         "news:last_load_summary",

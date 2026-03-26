@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
@@ -7,7 +7,7 @@ import feedparser
 
 
 CATEGORY_FEEDS = {
-    "immigration_foreign_policy": [
+    "immigration": [
         "https://www3.nhk.or.jp/rss/news/cat6.xml",
     ],
     "ai_tech": [

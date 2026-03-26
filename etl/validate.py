@@ -1,11 +1,12 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 
 REQUIRED_FIELDS = [
-    "article_id",
+    "id",
     "category",
     "title",
     "url",
+    "url_hash",
 ]
 
 

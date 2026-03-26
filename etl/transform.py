@@ -1,15 +1,37 @@
-ï»¿from __future__ import annotations
+from __future__ import annotations
 
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import hashlib
 import os
 from typing import Any
+import uuid
 
 
 KEYWORD_RULES = {
-    "immigration_foreign_policy": ["ç§»æ°‘", "å¤–å›½äºº", "å…¥ç®¡", "åœ¨ç•™", "visa", "immigration"],
-    "ai_tech": ["AI", "äººå·¥çŸ¥èƒ½", "åŠå°Žä½“", "tech", "technology", "startup"],
-    "language_learning": ["æ—¥æœ¬èªž", "èªžå­¦", "å­¦ç¿’", "education", "language"],
+    "immigration": ["ˆÚ–¯", "ŠO‘l", "“üŠÇ", "Ý—¯", "visa", "immigration"],
+    "ai_tech": ["AI", "lH’m”\", "”¼“±‘Ì", "tech", "technology", "startup"],
+    "language_learning": ["“ú–{Œê", "ŒêŠw", "ŠwK", "education", "language"],
 }
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        pass
+
+    try:
+        parsed = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def _normalize_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -22,18 +44,21 @@ def _normalize_item(item: dict[str, Any]) -> dict[str, Any]:
             ],
         )
     ).strip()
-    article_id = hashlib.sha256((item.get("url") or raw_text).encode("utf-8")).hexdigest()
+    canonical_key = item.get("url") or raw_text
+    article_id = str(uuid.uuid5(uuid.NAMESPACE_URL, canonical_key))
+    url_hash = hashlib.md5((item.get("url") or canonical_key).encode("utf-8")).hexdigest()
 
     return {
-        "article_id": article_id,
+        "id": article_id,
         "source": item.get("source"),
         "category": _classify_category(raw_text, item.get("category")),
         "title": item.get("title", "").strip(),
         "summary": item.get("summary", "").strip(),
         "content": raw_text,
         "url": item.get("url"),
-        "published_at": item.get("published_at"),
-        "fetched_at": item.get("fetched_at"),
+        "url_hash": url_hash,
+        "published_at": _parse_datetime(item.get("published_at")),
+        "fetched_at": _parse_datetime(item.get("fetched_at")) or datetime.now(timezone.utc),
         "language": item.get("language", os.getenv("NEWS_ETL_SOURCE_LANG", "ja")),
         "embedding_input": raw_text[:8000],
     }
@@ -44,7 +69,7 @@ def _classify_category(text: str, fallback: str | None) -> str:
     for category, keywords in KEYWORD_RULES.items():
         if any(keyword.lower() in lower_text for keyword in keywords):
             return category
-    return fallback or "uncategorized"
+    return fallback or "language_learning"
 
 
 def transform_news(**context):
