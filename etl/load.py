@@ -65,7 +65,7 @@ def load_news(**context):
                         %(published_at)s,
                         %(fetched_at)s,
                         NULL,
-                        NULL,
+                        %(llm_summary_zh)s,
                         NULL
                     )
                     ON CONFLICT (url) DO UPDATE
@@ -78,7 +78,8 @@ def load_news(**context):
                         content = EXCLUDED.content,
                         published_at = EXCLUDED.published_at,
                         fetched_at = EXCLUDED.fetched_at,
-                        language = EXCLUDED.language
+                        language = EXCLUDED.language,
+                        llm_summary_zh = EXCLUDED.llm_summary_zh
                     """,
                     item,
                 )
