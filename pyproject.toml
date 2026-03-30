@@ -1,4 +1,4 @@
-﻿[project]
+[project]
 name = "japan-news-etl"
 version = "0.1.0"
 description = "ETL pipeline for Japanese news ingestion with Airflow, PostgreSQL, and Redis."
@@ -10,6 +10,7 @@ dependencies = [
   "feedparser",
   "openai",
   "psycopg2-binary",
+  "pytest",
   "python-dotenv",
   "redis",
   "requests",

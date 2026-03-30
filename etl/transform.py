@@ -30,7 +30,7 @@ KEYWORD_RULES = {
 
 SYSTEM_PROMPT = "\u4f60\u662f\u4e00\u4e2a\u65b0\u95fb\u5206\u7c7b\u52a9\u624b\uff0c\u4e13\u6ce8\u4e8e\u65e5\u672c\u76f8\u5173\u65b0\u95fb\u3002"
 USER_PROMPT_TEMPLATE = """\u8bf7\u5206\u6790\u4ee5\u4e0b\u65b0\u95fb\uff0c\u8fd4\u56de JSON \u683c\u5f0f\uff1a
-{"category": "immigration|ai_tech|language_learning|other", "summary_zh": "2-3\u53e5\u4e2d\u6587\u6458\u8981"}
+{{"category": "immigration|ai_tech|language_learning|other", "summary_zh": "2-3\\u53e5\\u4e2d\\u6587\\u6458\\u8981"}}
 
 \u6807\u9898\uff1a{title}
 \u6458\u8981\uff1a{summary}
