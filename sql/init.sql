@@ -1,4 +1,4 @@
-﻿CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS news_articles (
     id UUID PRIMARY KEY,
@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS etl_run_log (
     source VARCHAR(100) NOT NULL,
     fetched_count INT NOT NULL DEFAULT 0,
     inserted_count INT NOT NULL DEFAULT 0,
+    updated_count INT NOT NULL DEFAULT 0,
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

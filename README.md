@@ -1,196 +1,157 @@
 ﻿# Japan News ETL
 
-日本新闻 ETL 项目骨架，用于每天抓取与日本相关的新闻，按 `移民/外国人政策`、`AI/Tech`、`语言学习` 三类做清洗和入库，并为后续自然语言查询与向量检索打基础。
+## Project Overview
 
-## 项目结构
+一个自动抓取日本新闻的 ETL Pipeline，每日定时从 NHK World、Japan Times 等来源采集移民政策、AI/Tech、语言学习三类新闻。数据经过抓取、清洗、分类、去重和入库后，统一存入 PostgreSQL。最终通过 Spring Boot API 提供自然语言查询接口，支持中文、英文、日文提问。
+
+## Architecture
+
+```text
+RSS Sources -> [Python ETL] -> PostgreSQL <- [Spring Boot API] <- User Query
+                   |                              |
+                   v                              v
+                Airflow                        Redis Cache
+                (调度)                         (1hr TTL)
+```
+
+## Tech Stack Choices
+
+- Airflow DAG：任务依赖管理清晰，单个 Task 失败后可以独立重跑，不需要整条链路重复执行。
+- PostgreSQL：既能承载结构化新闻数据，也能通过 pgvector 支持后续向量检索，减少系统拆分成本。
+- Redis：缓存高频查询结果，避免对同一问题重复调用 LLM API，降低延迟和调用成本。
+- 幂等性设计：基于 `url_hash` 做 upsert，保证 ETL 重跑时不会写入重复文章。
+
+## Repository Layout
 
 ```text
 japan-news-etl/
+├── api/                  # Spring Boot query API
+├── dags/                 # Airflow DAG definitions
+├── etl/                  # Python ETL modules
+├── scripts/              # Demo and validation scripts
+├── sql/                  # PostgreSQL initialization
 ├── docker-compose.yml
 ├── Dockerfile.airflow
-├── .env.example
-├── .gitignore
 ├── pyproject.toml
 ├── uv.lock
 ├── requirements.txt
-├── dags/
-│   └── news_etl_dag.py
-├── etl/
-│   ├── fetch.py
-│   ├── transform.py
-│   ├── load.py
-│   └── validate.py
-├── api/
-├── logs/
-├── plugins/
-├── sql/
-│   └── init.sql
+├── demo.py               # Interactive CLI demo
+├── test.sh               # End-to-end test runner
 └── README.md
 ```
 
-## 开发方式
+## Pipeline Flow
 
-这个项目现在默认走 `docker compose` 开发：
+1. `fetch.py`
+   从 RSS 源抓取原始新闻条目。
+2. `transform.py`
+   统一字段结构，补齐 `id` / `url_hash`，做 LLM 分类和中文摘要。
+3. `validate.py`
+   执行每日数据质量检查，识别异常抓取量。
+4. `load.py`
+   将文章 upsert 到 PostgreSQL，并写入 `etl_run_log` 与 Redis 摘要缓存。
+5. `api/`
+   接收自然语言问题，解析意图、查询新闻、生成中文回答。
 
-- `postgres`: PostgreSQL 14 + pgvector
-- `redis`: Redis 7
-- `airflow-webserver`: Airflow UI
-- `airflow-scheduler`: 定时调度
-- `airflow-init`: 初始化数据库和管理员用户
-- `airflow-cli`: 临时调试容器，用于执行 `airflow dags list`、手动触发 DAG、进入 shell
-
-Python 依赖现在以 [pyproject.toml](/D:/news-agg/japan-news-etl/pyproject.toml) 和 [uv.lock](/D:/news-agg/japan-news-etl/uv.lock) 为主。 [requirements.txt](/D:/news-agg/japan-news-etl/requirements.txt) 由 `uv export` 生成，用于兼容 Docker 镜像构建。
-
-## 本地 Python 开发
-
-首次同步环境：
+## Quick Start
 
 ```bash
-uv sync
-```
-
-查看依赖树：
-
-```bash
-uv tree
-```
-
-在项目环境中执行命令：
-
-```bash
-uv run python --version
-uv run python -c "import airflow; print(airflow.__version__)"
-```
-
-如果只想直接使用项目虚拟环境，也可以：
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-python --version
-```
-
-## 快速开始
-
-1. 复制环境变量模板
-
-```bash
+git clone <your-repo-url>
+cd japan-news-etl
 cp .env.example .env
 ```
 
-2. 填写 `.env` 中的数据库、Airflow、OpenAI 配置
+填写 `.env` 中的 `OPENAI_API_KEY`、`DATABASE_URL`、Redis/Airflow 相关配置后，启动服务：
 
-3. 同步本地 Python 依赖
+```bash
+docker compose up --build -d
+```
+
+本地运行交互式演示：
 
 ```bash
 uv sync
+uv run python demo.py
 ```
 
-4. 构建并启动服务
+如果你在 Windows PowerShell 中复制环境文件，也可以使用：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+## Demo Commands
+
+启动 [demo.py](/D:/news-agg/japan-news-etl/demo.py) 后，支持以下交互：
+
+- 直接输入问题：调用本地 Spring Boot API `localhost:8080/api/query`
+- `stats`：查看今天的 ETL 运行统计
+- `run`：直接调用 Python 函数手动执行一轮 ETL
+- `exit`：退出演示工具
+
+## Testing
+
+Python 测试：
 
 ```bash
-docker compose up --build -d
+uv run pytest etl/tests/test_transform.py
 ```
 
-5. 打开 Airflow UI
-
-- URL: `http://localhost:8080`
-- 用户名/密码：参考 `.env` 中的 `AIRFLOW_ADMIN_*`
-
-## 常用开发命令
-
-查看服务状态：
+Spring Boot 测试：
 
 ```bash
-docker compose ps
+gradle -p api test
 ```
 
-查看 Airflow Scheduler 日志：
+一键验证：
 
 ```bash
-docker compose logs -f airflow-scheduler
+bash test.sh
 ```
 
-列出 DAG：
+幂等性演示脚本：
 
 ```bash
-docker compose run --rm airflow-cli airflow dags list
+uv run python scripts/test_idempotency.py
 ```
 
-手动触发 DAG：
+## Data Model
 
-```bash
-docker compose run --rm airflow-cli airflow dags trigger japan_news_daily_etl
-```
+核心表：
 
-进入 Airflow 容器调试：
+- `news_articles`：存储结构化新闻数据、LLM 摘要和后续向量检索字段
+- `etl_run_log`：记录每日分来源、分分类的抓取/写入情况，用于质量监控与演示 upsert 行为
 
-```bash
-docker compose run --rm airflow-cli bash
-```
+当前分类范围：
 
-停止服务：
+- `immigration`
+- `ai_tech`
+- `language_learning`
 
-```bash
-docker compose down
-```
+## Interview Notes
 
-如果需要连同数据库卷一起清理：
+这个项目适合展示的不只是“抓到新闻”，而是完整的数据工程思路：定时编排、幂等写入、LLM 分类、缓存、自然语言查询和基础测试。除了常规单元测试，还提供了 [scripts/test_idempotency.py](/D:/news-agg/japan-news-etl/scripts/test_idempotency.py) 用于证明生产场景里的重复写入风险已经被显式考虑。对于面试演示，可以先运行 `demo.py` 展示问答，再运行幂等性脚本说明为什么 ETL 可以安全重跑。
 
-```bash
-docker compose down -v
-```
+## Design Decisions
 
-## 依赖管理约定
+### 中文版
 
-- 本地开发以 `uv` 为准：修改依赖后执行 `uv lock`
-- Docker 构建继续消费 [requirements.txt](/D:/news-agg/japan-news-etl/requirements.txt)
-- 每次更新依赖后，执行：
+1. 为什么用 5 个独立 Task 而不是一个大脚本
+   我把抓取、转换、加载、校验、通知拆成独立 Task，是为了让失败定位更快、重跑粒度更细，也更符合后续扩展更多数据源和处理步骤的需求。
 
-```bash
-uv export --format requirements-txt -o requirements.txt
-```
+2. 为什么幂等性用 `url_hash` 而不是 `url` 本身
+   我选择 `url_hash` 作为 upsert 键，是为了避免超长 URL、编码差异和索引成本问题，同时保留与原始 URL 解耦的稳定唯一键。
 
-## 代码热更新
+3. 为什么查询层不直接用 SQL 而要经过 LLM 意图解析
+   我让用户问题先经过意图解析，是因为自然语言查询往往包含日期、类别、关键词等隐含条件，直接暴露 SQL 过滤逻辑既不友好，也不利于支持中英日三语输入。
 
-以下目录都已挂载到容器中，修改后无需重建镜像即可生效：
+### English Version
 
-- `dags/`
-- `etl/`
-- `sql/`
-- `plugins/`
-- `logs/`
+1. Why use five separate tasks instead of one large script
+   I split fetch, transform, load, validate, and notify into separate tasks so failures are easier to isolate, reruns are more targeted, and the pipeline stays maintainable as new sources and steps are added.
 
-只有在修改 [pyproject.toml](/D:/news-agg/japan-news-etl/pyproject.toml)、[uv.lock](/D:/news-agg/japan-news-etl/uv.lock)、[requirements.txt](/D:/news-agg/japan-news-etl/requirements.txt) 或 [Dockerfile.airflow](/D:/news-agg/japan-news-etl/Dockerfile.airflow) 时，才需要重新执行：
+2. Why use `url_hash` instead of the raw `url` for idempotency
+   I chose `url_hash` as the upsert key to avoid issues with very long URLs, encoding inconsistencies, and index overhead, while keeping a stable deduplication key.
 
-```bash
-docker compose up --build -d
-```
-
-## ETL 流程
-
-1. `fetch.py`
-   从 RSS 源拉取原始新闻数据。
-
-2. `transform.py`
-   规范字段、生成 UUID 主键和 `url_hash`、做基础分类映射。
-
-3. `validate.py`
-   校验必填字段，过滤脏数据。
-
-4. `load.py`
-   写入 PostgreSQL、记录 `etl_run_log`，并把最近一次加载摘要写入 Redis。
-
-## 数据模型
-
-[init.sql](/D:/news-agg/japan-news-etl/sql/init.sql) 初始化 `news_articles` 表，包含：
-
-- 结构化字段：标题、摘要、正文、分类、来源、时间
-- `embedding VECTOR(1536)`：用于后续接 OpenAI embedding
-- `llm_summary_ja` / `llm_summary_zh`：预留后续多语言摘要
-
-## 下一步建议
-
-- 在 `fetch.py` 中补充更多日本媒体 RSS/站点源。
-- 在 `transform.py` 中接入更稳健的分类映射、发布时间解析和正文抽取。
-- 在 `load.py` 中接入 OpenAI embedding，并把摘要结果写入 `llm_summary_ja` / `llm_summary_zh`。
-- Day 2 再补 `api/` 的 Spring Boot REST API 和自然语言查询接口。
+3. Why not query with SQL directly and instead use LLM-based intent parsing
+   I added an intent parsing layer because natural-language queries usually hide filters such as date, category, and keywords, and translating those into structured query parameters creates a much better multilingual user experience than exposing raw SQL rules.
