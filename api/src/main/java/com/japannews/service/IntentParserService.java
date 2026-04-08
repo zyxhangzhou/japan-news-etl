@@ -25,39 +25,43 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class IntentParserService {
 
-    private static final URI OPENAI_URI = URI.create("https://api.openai.com/v1/chat/completions");
     private static final ZoneId TOKYO_ZONE = ZoneId.of("Asia/Tokyo");
-    private static final String SYSTEM_PROMPT = "你是查询意图解析器。从用户问题中提取查询参数，返回纯 JSON，不要其他内容。";
-    private static final String USER_PROMPT_TEMPLATE = "解析以下查询的意图：\"%s\"\n返回格式：{\"date\": \"today|yesterday|null\", \"dateRange\": \"today|week|month|null\", \"category\": \"immigration|ai_tech|language_learning|null\", \"keywords\": []}";
+    private static final String SYSTEM_PROMPT = "You are a query intent parser for a Japan news assistant. Return JSON only.";
+    private static final String USER_PROMPT_TEMPLATE = "Parse the following user query and return JSON only. "
+        + "Allowed format: {\"date\":\"today|yesterday|null\",\"dateRange\":\"today|week|month|null\",\"category\":\"immigration|ai_tech|language_learning|null\",\"keywords\":[]}"
+        + "\\nUser query: \"%s\"";
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
-    @Value("${OPENAI_API_KEY:}")
-    private String openAiApiKey;
+    @Value("${LLM_API_KEY:${OPENAI_API_KEY:}}")
+    private String llmApiKey;
 
-    @Value("${OPENAI_INTENT_MODEL:gpt-4.1-mini}")
+    @Value("${LLM_BASE_URL:${OPENAI_BASE_URL:https://api.moonshot.cn/v1}}")
+    private String llmBaseUrl;
+
+    @Value("${LLM_INTENT_MODEL:${OPENAI_INTENT_MODEL:kimi-k2-0905-preview}}")
     private String model;
 
     public ParsedIntent parse(String query) {
         String normalizedQuery = query == null ? "" : query.trim();
 
         try {
-            if (openAiApiKey == null || openAiApiKey.isBlank()) {
-                log.warn("OPENAI_API_KEY is blank, using default intent for query={}", normalizedQuery);
+            if (llmApiKey == null || llmApiKey.isBlank()) {
+                log.warn("LLM_API_KEY/OPENAI_API_KEY is blank, using default intent for query={}", normalizedQuery);
                 ParsedIntent defaultIntent = defaultIntent();
                 log.info("Intent parse result query={} result={}", normalizedQuery, defaultIntent);
                 return defaultIntent;
             }
 
-            String responseContent = callOpenAi(normalizedQuery);
+            String responseContent = callLlm(normalizedQuery);
             OpenAiIntentPayload payload = objectMapper.readValue(responseContent, OpenAiIntentPayload.class);
             ParsedIntent parsedIntent = toParsedIntent(payload);
             log.info("Intent parse result query={} result={}", normalizedQuery, parsedIntent);
             return parsedIntent;
-        } catch (IOException | InterruptedException e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.warn("Intent parsing failed, using default intent. query={}", normalizedQuery, e);
+            log.warn("Intent parsing interrupted, using default intent. query={}", normalizedQuery, e);
             ParsedIntent defaultIntent = defaultIntent();
             log.info("Intent parse result query={} result={}", normalizedQuery, defaultIntent);
             return defaultIntent;
@@ -69,7 +73,7 @@ public class IntentParserService {
         }
     }
 
-    private String callOpenAi(String query) throws IOException, InterruptedException {
+    private String callLlm(String query) throws IOException, InterruptedException {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", model);
         requestBody.put("temperature", 0);
@@ -82,23 +86,30 @@ public class IntentParserService {
             )
         );
 
-        HttpRequest request = HttpRequest.newBuilder(OPENAI_URI)
-            .header("Authorization", "Bearer " + openAiApiKey)
+        HttpRequest request = HttpRequest.newBuilder(buildChatCompletionsUri())
+            .header("Authorization", "Bearer " + llmApiKey)
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(requestBody)))
             .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IOException("OpenAI request failed with status " + response.statusCode() + ": " + response.body());
+            throw new IOException("LLM request failed with status " + response.statusCode() + ": " + response.body());
         }
 
         JsonNode root = objectMapper.readTree(response.body());
         JsonNode contentNode = root.path("choices").path(0).path("message").path("content");
         if (contentNode.isMissingNode() || contentNode.asText().isBlank()) {
-            throw new IOException("OpenAI response content was empty");
+            throw new IOException("LLM response content was empty");
         }
         return contentNode.asText();
+    }
+
+    private URI buildChatCompletionsUri() {
+        String normalizedBaseUrl = llmBaseUrl == null || llmBaseUrl.isBlank()
+            ? "https://api.openai.com/v1"
+            : llmBaseUrl.replaceAll("/+$", "");
+        return URI.create(normalizedBaseUrl + "/chat/completions");
     }
 
     private ParsedIntent toParsedIntent(OpenAiIntentPayload payload) {

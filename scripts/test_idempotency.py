@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 import logging
@@ -10,6 +10,7 @@ from etl import fetch, load, transform
 
 
 load_dotenv()
+load_dotenv('.env.local', override=True)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 logger = logging.getLogger("idempotency_test")

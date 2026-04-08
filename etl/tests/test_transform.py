@@ -44,9 +44,13 @@ def test_classify_returns_none_for_other():
         "summary": "This should be filtered",
     }
     fake_response = MagicMock()
-    fake_response.output_text = '{"category": "other", "summary_zh": "skip"}'
+    fake_choice = MagicMock()
+    fake_message = MagicMock()
+    fake_message.content = '{"category": "other", "summary_zh": "skip"}'
+    fake_choice.message = fake_message
+    fake_response.choices = [fake_choice]
     fake_client = MagicMock()
-    fake_client.responses.create.return_value = fake_response
+    fake_client.chat.completions.create.return_value = fake_response
     with patch("etl.transform._get_openai_client", return_value=fake_client):
         result = classify_and_summarize(article)
     assert result is None

@@ -1,4 +1,4 @@
-﻿# Japan News ETL
+# Japan News ETL
 
 ## Project Overview
 
@@ -61,7 +61,7 @@ cd japan-news-etl
 cp .env.example .env
 ```
 
-填写 `.env` 中的 `OPENAI_API_KEY`、`DATABASE_URL`、Redis/Airflow 相关配置后，启动服务：
+填写 `.env` 中的 `LLM_API_KEY`（或 `OPENAI_API_KEY`）、`DATABASE_URL`、Redis/Airflow 相关配置后，启动服务：
 
 ```bash
 docker compose up --build -d
@@ -74,6 +74,8 @@ uv sync
 uv run python demo.py
 ```
 
+Airflow UI 默认建议使用 http://localhost:8090，这样不会和 Spring Boot API 的 http://localhost:8081 冲突。
+
 如果你在 Windows PowerShell 中复制环境文件，也可以使用：
 
 ```powershell
@@ -84,7 +86,7 @@ Copy-Item .env.example .env
 
 启动 [demo.py](/D:/news-agg/japan-news-etl/demo.py) 后，支持以下交互：
 
-- 直接输入问题：调用本地 Spring Boot API `localhost:8080/api/query`
+- 直接输入问题：调用本地 Spring Boot API `localhost:8081/api/query`
 - `stats`：查看今天的 ETL 运行统计
 - `run`：直接调用 Python 函数手动执行一轮 ETL
 - `exit`：退出演示工具
@@ -113,6 +115,12 @@ bash test.sh
 
 ```bash
 uv run python scripts/test_idempotency.py
+```
+
+最小端到端冒烟脚本（启动服务 -> 执行一轮 ETL -> 调用 API）：
+
+```bash
+uv run python scripts/e2e_smoke.py
 ```
 
 ## Data Model

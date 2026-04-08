@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 from collections import defaultdict
 from datetime import date
 import json
@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 import psycopg2
 import redis
 load_dotenv()
+load_dotenv('.env.local', override=True)
 logger = logging.getLogger(__name__)
 def get_db_connection():
     database_url = os.getenv("DATABASE_URL")

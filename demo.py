@@ -1,14 +1,16 @@
 ﻿from __future__ import annotations
 from datetime import datetime
 import logging
+import os
 from typing import Any
 from dotenv import load_dotenv
 import requests
 from etl import fetch, load, transform
 load_dotenv()
+load_dotenv('.env.local', override=True)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 logger = logging.getLogger("demo")
-API_URL = "http://localhost:8080/api/query"
+API_URL = os.getenv("API_BASE_URL", "http://localhost:8081/api/query")
 SEPARATOR = "\u2501" * 30
 def print_welcome() -> None:
     print(SEPARATOR)

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import date
 import logging
@@ -10,6 +10,7 @@ import psycopg2
 
 
 load_dotenv()
+load_dotenv('.env.local', override=True)
 
 logger = logging.getLogger(__name__)
 

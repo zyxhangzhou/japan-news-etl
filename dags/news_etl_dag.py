@@ -148,7 +148,8 @@ def _task_fetch(**context):
 def _task_transform(**context):
     fetched_payload = context["ti"].xcom_pull(task_ids="task_fetch")
     fetched_articles = _resolve_article_payload(fetched_payload)
-    transformed_articles = transform.process_batch(fetched_articles)
+    normalized_articles = transform.normalize_articles(fetched_articles)
+    transformed_articles = transform.process_batch(normalized_articles)
     return _prepare_article_payload(transformed_articles, "transform", context["run_id"])
 
 

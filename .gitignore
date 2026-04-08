@@ -1,5 +1,6 @@
-﻿.venv/
+.venv/
 .env
+.env.local
 logs/
 plugins/
 __pycache__/
@@ -7,3 +8,5 @@ __pycache__/
 .pytest_cache/
 api/.gradle/
 api/build/
+hs_err_pid*.log
+replay_pid*.log

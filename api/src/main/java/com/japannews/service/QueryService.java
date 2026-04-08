@@ -13,6 +13,9 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -47,7 +50,7 @@ public class QueryService {
 
     public QueryResponse query(QueryRequest request) {
         ParsedIntent parsedIntent = intentParserService.parse(request.getQuery());
-        List<NewsArticle> articles = executeQuery(parsedIntent);
+        List<NewsArticle> articles = executeQuery(parsedIntent, request.getQuery());
         String answer = generateAnswer(articles, request.getQuery());
 
         Map<String, Object> queryInfo = new LinkedHashMap<>();
@@ -65,13 +68,13 @@ public class QueryService {
             .build();
     }
 
-    public List<NewsArticle> executeQuery(ParsedIntent intent) {
+    public List<NewsArticle> executeQuery(ParsedIntent intent, String rawQuery) {
         if (intent == null) {
             return List.of();
         }
 
         if (shouldUseCache(intent)) {
-            String cacheKey = buildCacheKey(intent);
+            String cacheKey = buildCacheKey(intent, rawQuery);
             List<NewsArticle> cachedArticles = getCachedArticles(cacheKey);
             if (cachedArticles != null) {
                 log.info("Query cache hit key={}", cacheKey);
@@ -188,7 +191,11 @@ public class QueryService {
         return intent.getKeywords() == null || intent.getKeywords().isEmpty();
     }
 
-    private String buildCacheKey(ParsedIntent intent) {
+    /**
+     * Cache key must distinguish natural-language queries when intent falls back to defaults
+     * (same date + category + empty keywords would otherwise collide).
+     */
+    private String buildCacheKey(ParsedIntent intent, String rawQuery) {
         String datePart;
         if (intent.getDate() != null) {
             datePart = intent.getDate().toString();
@@ -202,7 +209,22 @@ public class QueryService {
             ? "all"
             : intent.getCategory();
 
-        return "news:query:" + datePart + ":" + categoryPart;
+        return "news:query:" + datePart + ":" + categoryPart + ":q:" + sha256Hex(rawQuery);
+    }
+
+    private static String sha256Hex(String input) {
+        String normalized = input == null ? "" : input.trim();
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(normalized.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                sb.append(String.format(Locale.ROOT, "%02x", b));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private List<NewsArticle> getCachedArticles(String cacheKey) {

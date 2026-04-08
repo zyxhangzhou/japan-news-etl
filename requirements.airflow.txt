@@ -1,0 +1,7 @@
+beautifulsoup4
+feedparser
+openai
+psycopg2-binary
+python-dotenv
+redis
+requests

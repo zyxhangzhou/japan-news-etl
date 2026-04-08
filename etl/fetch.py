@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -13,6 +13,7 @@ import requests
 
 
 load_dotenv()
+load_dotenv('.env.local', override=True)
 
 logger = logging.getLogger(__name__)
 
@@ -38,17 +39,12 @@ RSS_SOURCES: dict[str, list[dict[str, str]]] = {
             "language": "en",
         },
         {
-            "name": "TechCrunch Japan",
-            "url": "https://jp.techcrunch.com/feed/",
-            "language": "ja",
+            "name": "TechCrunch",
+            "url": "https://techcrunch.com/feed/",
+            "language": "en",
         },
     ],
     "language_learning": [
-        {
-            "name": "NHK Web Easy",
-            "url": "https://www3.nhk.or.jp/news/easy/k10016000000000/k10016000000000.rss",
-            "language": "ja",
-        },
         {
             "name": "JapanesePod101 Blog",
             "url": "https://www.japanesepod101.com/blog/feed/",
@@ -82,6 +78,10 @@ def _to_utc_datetime(entry: Any) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _log_fetch_warning(source_name: str, feed_url: str, exc: Exception) -> None:
+    logger.warning("Skipping RSS source %s (%s): %s", source_name, feed_url, exc)
+
+
 def fetch_all_sources() -> list[dict[str, Any]]:
     articles: list[dict[str, Any]] = []
     session = requests.Session()
@@ -101,11 +101,11 @@ def fetch_all_sources() -> list[dict[str, Any]]:
                 )
                 response.raise_for_status()
                 parsed = feedparser.parse(response.content)
-            except requests.RequestException:
-                logger.exception("Failed to fetch RSS source: %s", feed_url)
+            except requests.RequestException as exc:
+                _log_fetch_warning(source_name, feed_url, exc)
                 continue
-            except Exception:
-                logger.exception("Unexpected error while parsing RSS source: %s", feed_url)
+            except Exception as exc:
+                _log_fetch_warning(source_name, feed_url, exc)
                 continue
 
             if getattr(parsed, "bozo", 0):
@@ -130,6 +130,7 @@ def fetch_all_sources() -> list[dict[str, Any]]:
                     }
                 )
 
+    logger.info("Fetched %s articles from %s categories", len(articles), len(RSS_SOURCES))
     return articles
 
 
