@@ -1,165 +1,283 @@
 # Japan News ETL
 
-## Project Overview
+[中文](#中文) | [English](#english) | [日本語](#日本語)
 
-一个自动抓取日本新闻的 ETL Pipeline，每日定时从 NHK World、Japan Times 等来源采集移民政策、AI/Tech、语言学习三类新闻。数据经过抓取、清洗、分类、去重和入库后，统一存入 PostgreSQL。最终通过 Spring Boot API 提供自然语言查询接口，支持中文、英文、日文提问。
+---
 
-## Architecture
+## 中文
+
+### 项目简介
+
+`japan-news-etl` 是一个端到端日本新闻数据工程项目：
+
+- Python ETL 从多源 RSS 抓取新闻，做标准化、去重、分类与摘要
+- Airflow 负责调度任务（按东京时区）
+- PostgreSQL 存储结构化新闻与运行日志
+- Redis 缓存查询结果
+- Spring Boot API 提供自然语言问答（中/英/日）
+
+### 架构
 
 ```text
 RSS Sources -> [Python ETL] -> PostgreSQL <- [Spring Boot API] <- User Query
                    |                              |
                    v                              v
                 Airflow                        Redis Cache
-                (调度)                         (1hr TTL)
 ```
 
-## Tech Stack Choices
-
-- Airflow DAG：任务依赖管理清晰，单个 Task 失败后可以独立重跑，不需要整条链路重复执行。
-- PostgreSQL：既能承载结构化新闻数据，也能通过 pgvector 支持后续向量检索，减少系统拆分成本。
-- Redis：缓存高频查询结果，避免对同一问题重复调用 LLM API，降低延迟和调用成本。
-- 幂等性设计：基于 `url_hash` 做 upsert，保证 ETL 重跑时不会写入重复文章。
-
-## Repository Layout
+### 目录结构
 
 ```text
 japan-news-etl/
-├── api/                  # Spring Boot query API
-├── dags/                 # Airflow DAG definitions
+├── api/                  # Spring Boot API
+├── dags/                 # Airflow DAG
 ├── etl/                  # Python ETL modules
-├── scripts/              # Demo and validation scripts
-├── sql/                  # PostgreSQL initialization
+├── scripts/              # Validation / smoke scripts
+├── sql/                  # DB init SQL
+├── demo.py               # CLI demo
 ├── docker-compose.yml
-├── Dockerfile.airflow
-├── pyproject.toml
-├── uv.lock
-├── requirements.txt
-├── demo.py               # Interactive CLI demo
-├── test.sh               # End-to-end test runner
 └── README.md
 ```
 
-## Pipeline Flow
+### 核心流程
 
-1. `fetch.py`
-   从 RSS 源抓取原始新闻条目。
-2. `transform.py`
-   统一字段结构，补齐 `id` / `url_hash`，做 LLM 分类和中文摘要。
-3. `validate.py`
-   执行每日数据质量检查，识别异常抓取量。
-4. `load.py`
-   将文章 upsert 到 PostgreSQL，并写入 `etl_run_log` 与 Redis 摘要缓存。
-5. `api/`
-   接收自然语言问题，解析意图、查询新闻、生成中文回答。
+1. `etl/fetch.py`：从 RSS 抓取新闻条目  
+2. `etl/transform.py`：字段标准化、去重、LLM 分类和摘要  
+3. `etl/load.py`：写入 `news_articles`，并记录 `etl_run_log`  
+4. `etl/validate.py`：执行日数据质量检查  
+5. `api/`：解析查询意图、检索新闻、生成回答
 
-## Quick Start
+### 主要入口
+
+- Airflow DAG：`dags/news_etl_dag.py`
+- API 服务入口：`api/src/main/java/com/japannews/JapanNewsApiApplication.java`
+- 本地 CLI 演示：`demo.py`
+- 端到端冒烟：`scripts/e2e_smoke.py`
+
+### 快速开始
 
 ```bash
 git clone <your-repo-url>
 cd japan-news-etl
 cp .env.example .env
-```
-
-填写 `.env` 中的 `LLM_API_KEY`（或 `OPENAI_API_KEY`）、`DATABASE_URL`、Redis/Airflow 相关配置后，启动服务：
-
-```bash
 docker compose up --build -d
 ```
 
-本地运行交互式演示：
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+docker compose up --build -d
+```
+
+### 推荐 LLM 配置（Kimi）
+
+在 `.env` 或运行环境中设置：
+
+```env
+LLM_API_KEY=your_key
+LLM_BASE_URL=https://api.moonshot.cn/v1
+LLM_INTENT_MODEL=kimi-k2-0905-preview
+LLM_ANSWER_MODEL=kimi-k2-0905-preview
+LLM_CLASSIFIER_MODEL=kimi-k2-0905-preview
+```
+
+说明：
+- Spring Boot API 不会自动读取 `.env.local`，请在启动 API 的终端中显式设置环境变量，或写入系统环境变量。
+- API 默认端口：`8081`
+- Airflow UI 默认端口：`8090`
+
+### Demo 使用
 
 ```bash
 uv sync
 uv run python demo.py
 ```
 
-Airflow UI 默认建议使用 http://localhost:8090，这样不会和 Spring Boot API 的 http://localhost:8081 冲突。
+可用命令：
+- 直接输入问题：调用 `http://localhost:8081/api/query`
+- `run`：手动跑一轮 ETL
+- `stats`：查看当日运行统计
+- `exit`：退出
 
-如果你在 Windows PowerShell 中复制环境文件，也可以使用：
-
-```powershell
-Copy-Item .env.example .env
-```
-
-## Demo Commands
-
-启动 [demo.py](/D:/news-agg/japan-news-etl/demo.py) 后，支持以下交互：
-
-- 直接输入问题：调用本地 Spring Boot API `localhost:8081/api/query`
-- `stats`：查看今天的 ETL 运行统计
-- `run`：直接调用 Python 函数手动执行一轮 ETL
-- `exit`：退出演示工具
-
-## Testing
-
-Python 测试：
+### 验证与测试
 
 ```bash
 uv run pytest etl/tests/test_transform.py
-```
-
-Spring Boot 测试：
-
-```bash
 gradle -p api test
-```
-
-一键验证：
-
-```bash
-bash test.sh
-```
-
-幂等性演示脚本：
-
-```bash
 uv run python scripts/test_idempotency.py
+uv run python scripts/e2e_smoke.py
+uv run python scripts/check_llm_config.py
 ```
 
-最小端到端冒烟脚本（启动服务 -> 执行一轮 ETL -> 调用 API）：
+### 数据模型
+
+- `news_articles`：新闻主表（包含分类、摘要、时间、来源）
+- `etl_run_log`：每日运行日志
+- 分类集合：`immigration` / `ai_tech` / `language_learning`
+
+---
+
+## English
+
+### Overview
+
+`japan-news-etl` is an end-to-end news data pipeline:
+
+- Python ETL ingests RSS feeds and performs normalization, deduplication, classification, and summarization
+- Airflow orchestrates scheduled runs
+- PostgreSQL stores article data and ETL run logs
+- Redis caches query results
+- Spring Boot API serves multilingual natural-language queries
+
+### Architecture
+
+```text
+RSS Sources -> [Python ETL] -> PostgreSQL <- [Spring Boot API] <- User Query
+                   |                              |
+                   v                              v
+                Airflow                        Redis Cache
+```
+
+### Main Entry Points
+
+- Airflow DAG: `dags/news_etl_dag.py`
+- API app: `api/src/main/java/com/japannews/JapanNewsApiApplication.java`
+- CLI demo: `demo.py`
+- E2E smoke: `scripts/e2e_smoke.py`
+
+### Quick Start
 
 ```bash
-uv run python scripts/e2e_smoke.py
+git clone <your-repo-url>
+cd japan-news-etl
+cp .env.example .env
+docker compose up --build -d
 ```
 
-## Data Model
+### Recommended LLM Settings (Kimi)
 
-核心表：
+```env
+LLM_API_KEY=your_key
+LLM_BASE_URL=https://api.moonshot.cn/v1
+LLM_INTENT_MODEL=kimi-k2-0905-preview
+LLM_ANSWER_MODEL=kimi-k2-0905-preview
+LLM_CLASSIFIER_MODEL=kimi-k2-0905-preview
+```
 
-- `news_articles`：存储结构化新闻数据、LLM 摘要和后续向量检索字段
-- `etl_run_log`：记录每日分来源、分分类的抓取/写入情况，用于质量监控与演示 upsert 行为
+Notes:
+- Spring Boot does not automatically load `.env.local`. Set environment variables in the terminal before `bootRun`, or define them in system env.
+- API default port: `8081`
+- Airflow UI default port: `8090`
 
-当前分类范围：
+### Run Demo
 
-- `immigration`
-- `ai_tech`
-- `language_learning`
+```bash
+uv sync
+uv run python demo.py
+```
 
-## Interview Notes
+Commands:
+- Ask directly (sent to `http://localhost:8081/api/query`)
+- `run` (manual ETL)
+- `stats` (today's ETL summary)
+- `exit`
 
-这个项目适合展示的不只是“抓到新闻”，而是完整的数据工程思路：定时编排、幂等写入、LLM 分类、缓存、自然语言查询和基础测试。除了常规单元测试，还提供了 [scripts/test_idempotency.py](/D:/news-agg/japan-news-etl/scripts/test_idempotency.py) 用于证明生产场景里的重复写入风险已经被显式考虑。对于面试演示，可以先运行 `demo.py` 展示问答，再运行幂等性脚本说明为什么 ETL 可以安全重跑。
+### Tests and Verification
 
-## Design Decisions
+```bash
+uv run pytest etl/tests/test_transform.py
+gradle -p api test
+uv run python scripts/test_idempotency.py
+uv run python scripts/e2e_smoke.py
+uv run python scripts/check_llm_config.py
+```
 
-### 中文版
+### Data Model
 
-1. 为什么用 5 个独立 Task 而不是一个大脚本
-   我把抓取、转换、加载、校验、通知拆成独立 Task，是为了让失败定位更快、重跑粒度更细，也更符合后续扩展更多数据源和处理步骤的需求。
+- `news_articles`: structured news records
+- `etl_run_log`: ETL run-level metrics and status
+- Categories: `immigration`, `ai_tech`, `language_learning`
 
-2. 为什么幂等性用 `url_hash` 而不是 `url` 本身
-   我选择 `url_hash` 作为 upsert 键，是为了避免超长 URL、编码差异和索引成本问题，同时保留与原始 URL 解耦的稳定唯一键。
+---
 
-3. 为什么查询层不直接用 SQL 而要经过 LLM 意图解析
-   我让用户问题先经过意图解析，是因为自然语言查询往往包含日期、类别、关键词等隐含条件，直接暴露 SQL 过滤逻辑既不友好，也不利于支持中英日三语输入。
+## 日本語
 
-### English Version
+### 概要
 
-1. Why use five separate tasks instead of one large script
-   I split fetch, transform, load, validate, and notify into separate tasks so failures are easier to isolate, reruns are more targeted, and the pipeline stays maintainable as new sources and steps are added.
+`japan-news-etl` は、日本ニュース向けのエンドツーエンド ETL プロジェクトです。
 
-2. Why use `url_hash` instead of the raw `url` for idempotency
-   I chose `url_hash` as the upsert key to avoid issues with very long URLs, encoding inconsistencies, and index overhead, while keeping a stable deduplication key.
+- Python ETL が RSS を収集し、正規化・重複排除・分類・要約を実行
+- Airflow が定期実行をオーケストレーション
+- PostgreSQL に記事データと実行ログを保存
+- Redis で問い合わせ結果をキャッシュ
+- Spring Boot API で自然言語クエリに回答
 
-3. Why not query with SQL directly and instead use LLM-based intent parsing
-   I added an intent parsing layer because natural-language queries usually hide filters such as date, category, and keywords, and translating those into structured query parameters creates a much better multilingual user experience than exposing raw SQL rules.
+### アーキテクチャ
+
+```text
+RSS Sources -> [Python ETL] -> PostgreSQL <- [Spring Boot API] <- User Query
+                   |                              |
+                   v                              v
+                Airflow                        Redis Cache
+```
+
+### 主なエントリポイント
+
+- Airflow DAG: `dags/news_etl_dag.py`
+- API エントリ: `api/src/main/java/com/japannews/JapanNewsApiApplication.java`
+- CLI デモ: `demo.py`
+- E2E スモーク: `scripts/e2e_smoke.py`
+
+### クイックスタート
+
+```bash
+git clone <your-repo-url>
+cd japan-news-etl
+cp .env.example .env
+docker compose up --build -d
+```
+
+### 推奨 LLM 設定（Kimi）
+
+```env
+LLM_API_KEY=your_key
+LLM_BASE_URL=https://api.moonshot.cn/v1
+LLM_INTENT_MODEL=kimi-k2-0905-preview
+LLM_ANSWER_MODEL=kimi-k2-0905-preview
+LLM_CLASSIFIER_MODEL=kimi-k2-0905-preview
+```
+
+注意:
+- Spring Boot API は `.env.local` を自動読込しません。`bootRun` 前に環境変数を設定してください。
+- API デフォルトポート: `8081`
+- Airflow UI デフォルトポート: `8090`
+
+### デモ実行
+
+```bash
+uv sync
+uv run python demo.py
+```
+
+コマンド:
+- 直接質問入力（`http://localhost:8081/api/query` へ送信）
+- `run`（ETL 手動実行）
+- `stats`（当日の実行統計）
+- `exit`
+
+### テスト・検証
+
+```bash
+uv run pytest etl/tests/test_transform.py
+gradle -p api test
+uv run python scripts/test_idempotency.py
+uv run python scripts/e2e_smoke.py
+uv run python scripts/check_llm_config.py
+```
+
+### データモデル
+
+- `news_articles`: ニュース本体データ
+- `etl_run_log`: ETL 実行ログ
+- カテゴリ: `immigration` / `ai_tech` / `language_learning`
